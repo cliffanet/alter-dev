@@ -5,7 +5,8 @@
 #include "core/btn.h"
 #include "core/view.h"
 #include "core/log.h"
-//#include "power.h"
+#include "display.h"
+#include "power.h"
 
 #include "altcalc.h"
 #include <Adafruit_BMP280.h>
@@ -18,10 +19,11 @@ class _jmpWrk : public Wrk {
 
     View _w = View([this](U8G2 &u8g2) { draw(u8g2); });
 
-    //Btn _b = Btn(
-    //    [](){ powerStart(false); },
-    //    [this]() { clicklng(); }
-    //);
+    Btn _b = Btn(
+        Btn::Hnd(displayLightTgl),
+        Btn::Hnd([](){ powerStart(false); }),
+        Btn::Hnd(NULL)
+    );
 
     void draw(U8G2 &u8g2) {
         const auto a = ac.avg();

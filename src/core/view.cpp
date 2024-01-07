@@ -56,6 +56,8 @@ public:
         if (_hnd.empty())
             return END;
 
+        draw();
+
         return DLY;
     }
 

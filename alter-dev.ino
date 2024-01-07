@@ -5,7 +5,7 @@
 #include "src/core/clock.h"
 #include "src/core/worker.h"
 
-//#include "src/power.h"
+#include "src/power.h"
 #include "src/jump.h"
 
 //------------------------------------------------------------------------------
