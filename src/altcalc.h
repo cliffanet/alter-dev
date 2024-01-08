@@ -256,4 +256,34 @@ private:
     AltProfile _ff;
 };
 
+/**************************************************************************/
+//  AltStrict       - более строгое определение режимов прыжка
+/**************************************************************************/
+
+// режим AC_STRICT
+// при котором более строго профилируется начало подъёма и начала прыжка.
+// Особенности:
+// - профилируется (сверяется с профилем) любое изменение режима
+// - начало прыжка - всегда FF (т.е. раскрытие под бортом уже не прокатит)
+// - более укороченное принятие решение о начале прыжка
+
+class AltStrict {
+public:
+
+    void tick(const AltCalc &ac);
+
+    // Текущий режим
+    const AltJmp::mode_t    mode()  const { return _mode; }
+    // Время с предыдущего изменения режима
+    const uint32_t  cnt()   const { return _cnt; }
+    const uint32_t  tm()    const { return _tm; }
+    const AltProfile &prof() const { return _prof; }
+
+private:
+    AltJmp::mode_t _mode = AltJmp::INIT, _nxt = AltJmp::GROUND;
+    uint32_t _cnt = 0, _tm = 0;
+    AltProfile _prof;
+    AltDirect _dir;
+};
+
 #endif // __altcalc_H

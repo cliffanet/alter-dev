@@ -256,6 +256,89 @@ void AltSqBig::reset() {
 }
 
 /*******************************
+ *          AltProfile
+ *******************************/
+
+AltProfile::AltProfile() :
+    _prof(NULL),
+    _sz(0),
+    _icnt(0)
+{ }
+
+AltProfile::AltProfile(const prof_t *profile, uint8_t sz, uint8_t icnt) :
+    _prof(profile),
+    _sz(sz),
+    _icnt(icnt)
+{ }
+
+void AltProfile::tick(const AltCalc::VAvg &avg, uint32_t tm) {
+    if ((_prof == NULL) || (_sz == 0))
+        return;
+    
+    if (_c == 0) {
+        // стартуем определять вхождение в профиль по средней скорости
+        const auto &p = _prof[_c];
+        if ((avg.speed() >= p.min) && (avg.speed() <= p.max)) {
+            _c ++;
+            _alt = avg.alt();
+            _tm = 0;
+            _cnt = 0;
+        }
+        return;
+    }
+
+    // теперь считаем интервал от самого первого пункта в профиле
+    _cnt ++;
+    _tm += tm;
+
+    if (_c >= _sz) return;
+
+    // далее - каждые 10 тиков от старта будем проверять каждый следующий пункт профиля
+    if ((_cnt/_c) < _icnt)
+        return;
+
+    auto alt = avg.alt() - _alt;
+    const auto &p = _prof[_c];
+    if ((alt >= p.min) && (alt <= p.max)) {
+        // мы всё ещё соответствуем профилю начала прыга
+        _c ++;
+        _alt = avg.alt();
+        return;
+    }
+
+    // мы вышли за пределы профиля
+    if ((avg.speed() >= p.min) && (avg.speed() <= p.max)) {
+        // но мы ещё в рамках старта профиля
+        _c ++;
+        _alt = avg.alt();
+    }
+    else {
+        // выход из профиля полный - полный сброс процесса
+        _c = 0;
+        _alt = 0;
+    }
+
+    if (_cnt > 0) {
+        _cnt = 0;
+        _tm = 0;
+    }
+}
+
+void AltProfile::reset() {
+    _c      = 0;
+    _alt    = 0;
+    _cnt    = 0;
+    _tm     = 0;
+}
+
+void AltProfile::clear() {
+    reset();
+    _prof   = NULL;
+    _sz     = 0;
+    _icnt   = 0;
+}
+
+/*******************************
  *          AltJmp
  *******************************/
 
@@ -372,84 +455,88 @@ void AltJmp::reset() {
 }
 
 /*******************************
- *          AltProfile
+ *          AltStrict
  *******************************/
 
-AltProfile::AltProfile() :
-    _prof(NULL),
-    _sz(0),
-    _icnt(0)
-{ }
+void AltStrict::tick(const AltCalc &ac) {
+    auto tm = ac.tm();
+    _prof.tick(ac.sav(5), tm);
+    _dir.tick(ac);
 
-AltProfile::AltProfile(const prof_t *profile, uint8_t sz, uint8_t icnt) :
-    _prof(profile),
-    _sz(sz),
-    _icnt(icnt)
-{ }
-
-void AltProfile::tick(const AltCalc::VAvg &avg, uint32_t tm) {
-    if ((_prof == NULL) || (_sz == 0))
-        return;
+    bool chg =
+        _mode == AltJmp::INIT ?
+            !ac.isinit() :
+            _prof.full();
     
-    if (_c == 0) {
-        // стартуем определять вхождение в профиль по средней скорости
-        const auto &p = _prof[_c];
-        if ((avg.speed() >= p.min) && (avg.speed() <= p.max)) {
-            _c ++;
-            _alt = avg.alt();
-            _tm = 0;
-            _cnt = 0;
-        }
+    if (!chg && (_mode > AltJmp::GROUND)) {
+        auto avg = ac.avg();
+        chg = 
+            (avg.alt() < 50) && 
+            (_dir.mode() == AltDirect::FLAT) &&
+            (_dir.cnt() > 200);
+        if (chg)
+            _nxt = AltJmp::GROUND;
+    }
+
+    if (!chg) {
+        _cnt ++;
+        _tm += tm;
         return;
     }
 
-    // теперь считаем интервал от самого первого пункта в профиле
-    _cnt ++;
-    _tm += tm;
-
-    if (_c >= _sz) return;
-
-    // далее - каждые 10 тиков от старта будем проверять каждый следующий пункт профиля
-    if ((_cnt/_c) < _icnt)
-        return;
-
-    auto alt = avg.alt() - _alt;
-    const auto &p = _prof[_c];
-    if ((alt >= p.min) && (alt <= p.max)) {
-        // мы всё ещё соответствуем профилю начала прыга
-        _c ++;
-        _alt = avg.alt();
-        return;
-    }
-
-    // мы вышли за пределы профиля
-    if ((avg.speed() >= p.min) && (avg.speed() <= p.max)) {
-        // но мы ещё в рамках старта профиля
-        _c ++;
-        _alt = avg.alt();
+    // профиль закончился успешно
+    _mode   = _nxt;
+    if (_prof.empty()) {
+        _cnt    = 0;
+        _tm     = 0;
     }
     else {
-        // выход из профиля полный - полный сброс процесса
-        _c = 0;
-        _alt = 0;
+        // скорость средняя задерживается примерно на половину-весь размер буфера
+        _cnt    = _prof.cnt() + 10 /* + AC_DATA_COUNT */;
+        _tm     = _prof.tm();
     }
 
-    if (_cnt > 0) {
-        _cnt = 0;
-        _tm = 0;
+    switch (_mode) {
+        case AltJmp::GROUND: {
+                static const AltProfile::prof_t to_toff[] = {
+                    { 1,  50 },
+                    { 1,  50 },
+                    { 2,  50 },
+                    { 2,  50 },
+                    { 2,  50 },
+                };
+                _prof   = AltProfile(to_toff, 5);
+                _nxt    = AltJmp::TAKEOFF;
+            }
+            break;
+
+        case AltJmp::TAKEOFF: {
+                static const AltProfile::prof_t to_ff[] = {
+                    { -50,  -10 },
+                    { -100, -23 },
+                    { -100, -35 },
+                    { -100, -35 }
+                };
+                _prof   = AltProfile(to_ff, 4);
+                _nxt    = AltJmp::FREEFALL;
+            }
+            break;
+
+        case AltJmp::FREEFALL: {
+                static const AltProfile::prof_t to_cnp[] = {
+                    { -35,  10 },
+                    { -15,  10 },
+                    { -15,  10 },
+                    { -15,  5 }
+                };
+                _prof   = AltProfile(to_cnp, 4);
+                _nxt    = AltJmp::CANOPY;
+            }
+            break;
+
+        case AltJmp::CANOPY: {
+                _prof.clear();
+                _nxt    = AltJmp::GROUND;
+        }
     }
-}
-
-void AltProfile::reset() {
-    _c      = 0;
-    _alt    = 0;
-    _cnt    = 0;
-    _tm     = 0;
-}
-
-void AltProfile::clear() {
-    reset();
-    _prof   = NULL;
-    _sz     = 0;
-    _icnt   = 0;
 }

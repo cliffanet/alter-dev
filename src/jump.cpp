@@ -74,6 +74,7 @@ class _jmpWrk : public Wrk {
     AltCalc ac;
     AltJmp jmp;
     AltSqBig sq;
+    AltStrict jstr;
     bool ok = false;
 
     typedef struct {
@@ -126,27 +127,31 @@ class _jmpWrk : public Wrk {
         return alt;
     }
 
-    void draw(U8G2 &u8g2) {
-        drawBatt(u8g2);
-
-        char s[30], t[20];
-
-        // info
-        u8g2.setFont(u8g2_font_6x13B_tr);
-        auto m = jmp.mode();
-        const char *ms =
+    const char *modestr(char *s, AltJmp::mode_t m) {
+        const char *pstr =
             m == AltJmp::INIT       ? PSTR("INIT") :
             m == AltJmp::GROUND     ? PSTR("GND") :
             m == AltJmp::TAKEOFF    ? PSTR("TOFF") :
             m == AltJmp::FREEFALL   ? PSTR("FF") :
             m == AltJmp::CANOPY     ? PSTR("CNP") : PSTR("-");
+        strncpy_P(s, pstr, 10);
+        return s;
+    }
+
+    void draw(U8G2 &u8g2) {
+        drawBatt(u8g2);
+
+        char s[30], m[10], t[20];
+
+        // info
+        u8g2.setFont(u8g2_font_6x13B_tr);
 
         uint8_t y = 40;
         str("%.1f m/s", ac.avg().speed());
         u8g2.drawStr(0, y, s);
 
         y += u8g2.getAscent()+2;
-        str("%s (%s)", ms, strtm(t, jmp.tm()));
+        str("%s (%s)", modestr(m, jmp.mode()), strtm(t, jmp.tm()));
         u8g2.drawStr(0, y, s);
 
         y += u8g2.getAscent()+2;
@@ -162,8 +167,11 @@ class _jmpWrk : public Wrk {
         }
 
         y += u8g2.getAscent()+2;
-        str("sq: %0.1f (%s)", sq.val(), strtm(t, sq.tm()));
+        str("q:%0.1f(%s)", sq.val(), strtm(t, sq.tm()));
         u8g2.drawStr(0, y, s);
+
+        str("s[%d]:%s(%s)", jstr.prof().num(), modestr(m, jstr.mode()), strtm(t, jstr.tm()));
+        u8g2.drawStr(u8g2.getDisplayWidth()-u8g2.getStrWidth(s)-15, u8g2.getDisplayHeight()-1, s);
         
         switch (page) {
             case 0: {
@@ -272,6 +280,7 @@ public:
         jmp.tick(ac);
         const bool chgmode = m != jmp.mode();
         sq.tick(ac);
+        jstr.tick(ac);
 
         // gndreset
         if (
