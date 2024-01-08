@@ -253,6 +253,7 @@ public:
 
 class AltDirect {
     // Направление вертикального движения (вверх/вниз)
+public:
     typedef enum {
         INIT = 0,
         UP,
@@ -260,10 +261,6 @@ class AltDirect {
         DOWN
     } dir_t;
 
-    dir_t _mode = INIT;
-    uint32_t _cnt = 0, _tm = 0;
-
-public:
     void tick(const AltCalc &ac);
 
     // Текущий режим высоты
@@ -272,6 +269,10 @@ public:
     const uint32_t  cnt()   const { return _cnt; }
     const uint32_t  tm()    const { return _tm; }
     void reset();
+
+private:
+    dir_t _mode = INIT;
+    uint32_t _cnt = 0, _tm = 0;
 };
 
 /**************************************************************************/
@@ -279,6 +280,7 @@ public:
 class AltState {
     // state определяется исходя из направления движения и скорости
     // т.е. это состояние на текущее мнгновение
+public:
     typedef enum {
         INIT = 0,
         GROUND,
@@ -289,10 +291,6 @@ class AltState {
         LANDING
     } st_t;
 
-    st_t _mode = INIT;
-    uint32_t _cnt = 0, _tm = 0;
-
-public:
     void tick(const AltCalc &ac);
 
     // Текущий режим высоты
@@ -301,6 +299,10 @@ public:
     const uint32_t  cnt()   const { return _cnt; }
     const uint32_t  tm()    const { return _tm; }
     void reset();
+
+private:
+    st_t _mode = INIT;
+    uint32_t _cnt = 0, _tm = 0;
 };
 
 /**************************************************************************/
@@ -328,6 +330,7 @@ public:
 
 class AltJmp {
     // интеллектуальное определение режимов прыжка
+public:
     typedef enum {
         INIT = -1,
         GROUND,
@@ -336,10 +339,6 @@ class AltJmp {
         CANOPY
     } mode_t;
 
-    mode_t _mode = INIT;
-    uint32_t _cnt = 0, _tm = 0, _c_cnt = 0, _c_tm = 0;
-
-public:
     void tick(const AltCalc &ac);
 
     // Текущий режим высоты
@@ -348,6 +347,12 @@ public:
     const uint32_t  cnt()   const { return _cnt; }
     const uint32_t  tm()    const { return _tm; }
     void reset();
+
+    const uint32_t  newtm() const { return _c_tm; }
+
+private:
+    mode_t _mode = INIT;
+    uint32_t _cnt = 0, _tm = 0, _c_cnt = 0, _c_tm = 0;
 };
 
 #endif // __altcalc_H

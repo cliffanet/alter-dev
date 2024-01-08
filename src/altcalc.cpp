@@ -653,14 +653,17 @@ void AltJmp::tick(const AltCalc &ac) {
             break;
     }
 
-    if (m == _mode)
-        return;
-
-    _mode   = m;
-    _cnt    = _c_cnt;
-    _tm     = _c_tm;
-    _c_cnt  = 0;
-    _c_tm   = 0;
+    if (m == _mode) {
+        _cnt ++;
+        _tm += ac.tm();
+    }
+    else {
+        _mode   = m;
+        _cnt    = _c_cnt;
+        _tm     = _c_tm;
+        _c_cnt  = 0;
+        _c_tm   = 0;
+    }
 }
 
 void AltJmp::reset() {

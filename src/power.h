@@ -11,6 +11,7 @@
 #define HWPOWER_PIN_BATIN   36
 #define HWPOWER_PIN_BATCHRG 12
 
+void pwrBattInit();
 uint16_t pwrBattRaw();
 double pwrBattValue();
 uint8_t pwrBattLevel();

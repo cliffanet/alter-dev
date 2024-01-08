@@ -93,10 +93,10 @@ public:
             _s(it._s),
             _i(it._i) {}
         reference operator*() {
-            return **_s;
+            return (*_s)[_i];
         }
         reference operator[](size_type index) {
-            return (*_s)[index];
+            return (*_s)[_i + index];
         }
         pointer operator->() { return &(operator *()); }
 

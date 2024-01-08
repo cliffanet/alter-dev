@@ -9,6 +9,8 @@
 #include <functional>
 #include <U8g2lib.h>
 
+#define str(ss, ...) snprintf_P(s, sizeof(s), PSTR(ss), ##__VA_ARGS__)
+
 class View {
     public:
         typedef std::function<void (U8G2 &u8g2)> hnd_t;

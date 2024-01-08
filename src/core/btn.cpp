@@ -88,13 +88,13 @@ public:
                     // need wait long-click
                     if (pushed) {
                         b.pushed++;
-                        if (b.pushed > 50) {
+                        if (b.pushed > 15) {
                             b.click = true;
                             h.lng();
                         }
                     }
                     else
-                    if (b.pushed > 2) {
+                    if (b.pushed > 0) {
                         b.click = true;
                         if (h.sng != NULL)
                             h.sng();
@@ -103,7 +103,7 @@ public:
                 else
                 if (pushed) {
                     b.pushed++;
-                    if (b.pushed > 2) {
+                    if (b.pushed > 0) {
                         b.click = true;
                         if (h.sng != NULL)
                             h.sng();

@@ -26,6 +26,11 @@ static double fmap(uint32_t in, uint32_t in_min, uint32_t in_max, double out_min
     return  (out_max - out_min) * (in - in_min) / (in_max - in_min) + out_min;
 }
 
+void pwrBattInit() {
+    pinMode(HWPOWER_PIN_BATIN, INPUT);
+    pinMode(HWPOWER_PIN_BATCHRG, INPUT_PULLUP);
+}
+
 uint16_t pwrBattRaw() {
     return analogRead(HWPOWER_PIN_BATIN);
 }
