@@ -72,6 +72,8 @@ class _jmpWrk : public Wrk {
 
         char s[30], t[20];
 
+        // info
+        u8g2.setFont(u8g2_font_6x13B_tr);
         auto m = jmp.mode();
         const char *ms =
             m == AltJmp::INIT       ? PSTR("INIT") :
@@ -79,6 +81,30 @@ class _jmpWrk : public Wrk {
             m == AltJmp::TAKEOFF    ? PSTR("TOFF") :
             m == AltJmp::FREEFALL   ? PSTR("FF") :
             m == AltJmp::CANOPY     ? PSTR("CNP") : PSTR("-");
+
+        uint8_t y = 40;
+        str("%.1f m/s", ac.avg().speed());
+        u8g2.drawStr(0, y, s);
+
+        y += u8g2.getAscent()+2;
+        str("%s (%s)", ms, strtm(t, jmp.tm()));
+        u8g2.drawStr(0, y, s);
+
+        y += u8g2.getAscent()+2;
+        if (jmp.newtm() > 0) {
+            str("new: %s (%d)", strtm(t, jmp.newtm()), jmp.newcnt());
+            u8g2.drawStr(0, y, s);
+        }
+
+        y += u8g2.getAscent()+2;
+        if (jmp.ff().active()) {
+            str("ff: %d", jmp.ff().num());
+            u8g2.drawStr(0, y, s);
+        }
+
+        y += u8g2.getAscent()+2;
+        str("sq: %0.1f (%s)", sq.val(), strtm(t, sq.tm()));
+        u8g2.drawStr(0, y, s);
         
         switch (page) {
             case 0: {
@@ -87,22 +113,6 @@ class _jmpWrk : public Wrk {
                 str("%d", alt());
                 u8g2.drawStr(u8g2.getDisplayWidth()-u8g2.getStrWidth(s), 80, s);
 
-                // info
-                u8g2.setFont(u8g2_font_6x13B_tr);
-
-                uint8_t y = 40;
-                str("%.1f m/s", ac.speedapp());
-                u8g2.drawStr(0, y, s);
-
-                y += u8g2.getAscent()+2;
-                str("%s (%s)", ms, strtm(t, jmp.tm()));
-                u8g2.drawStr(0, y, s);
-
-                y += u8g2.getAscent()+2;
-                if (jmp.newtm() > 0) {
-                    str("new: %s", strtm(t, jmp.newtm()));
-                    u8g2.drawStr(0, y, s);
-                }
             }
             break;
             case 1: {
@@ -111,34 +121,20 @@ class _jmpWrk : public Wrk {
 
                 int y = u8g2.getAscent();
                 str("%d", alt());
-                u8g2.drawStr(u8g2.getDisplayWidth()-u8g2.getStrWidth(s), y, s);
-
-                u8g2.setFont(u8g2_font_6x13B_tr);
-
-                // info
-                y += u8g2.getAscent()+5;
-                str("sq: %0.1f (%s)", sq.val(), strtm(t, sq.tm()));
-                u8g2.drawStr(u8g2.getDisplayWidth()-u8g2.getStrWidth(s), y, s);
-
-                y += u8g2.getAscent()+2;
-                str("%s (%s)", ms, strtm(t, jmp.tm()));
-                u8g2.drawStr(u8g2.getDisplayWidth()-u8g2.getStrWidth(s), y, s);
-
-                y += u8g2.getAscent()+2;
-                str("%.1f m/s", ac.speedapp());
-                u8g2.drawStr(u8g2.getDisplayWidth()-u8g2.getStrWidth(s), y, s);
+                u8g2.drawStr(90-u8g2.getStrWidth(s), y, s);
 
                 // вертикальная шкала
-                u8g2.drawLine(0, 0, 5, 0);
-                u8g2.drawLine(0, u8g2.getDisplayHeight()-1, 5, u8g2.getDisplayHeight()-1);
-                u8g2.drawLine(0, u8g2.getDisplayHeight()/2, 5, u8g2.getDisplayHeight()/2);
+                u8g2.drawLine(u8g2.getDisplayWidth()-5, 0,                          u8g2.getDisplayWidth(), 0);
+                u8g2.drawLine(u8g2.getDisplayWidth()-5, u8g2.getDisplayHeight()-1,  u8g2.getDisplayWidth(), u8g2.getDisplayHeight()-1);
+                u8g2.drawLine(u8g2.getDisplayWidth()-5, u8g2.getDisplayHeight()/2,  u8g2.getDisplayWidth(), u8g2.getDisplayHeight()/2);
 
+                u8g2.setFont(u8g2_font_b10_b_t_japanese1);
                 str("%d", lmin);
-                u8g2.drawStr(5, u8g2.getDisplayHeight()-1, s);
+                u8g2.drawStr(u8g2.getDisplayWidth()-5-u8g2.getStrWidth(s), u8g2.getDisplayHeight()-1, s);
                 str("%d", lmax);
-                u8g2.drawStr(5, u8g2.getAscent(), s);
+                u8g2.drawStr(u8g2.getDisplayWidth()-5-u8g2.getStrWidth(s), u8g2.getAscent(), s);
                 str("%d", lmin+(lmax-lmin)/2);
-                u8g2.drawStr(5, (u8g2.getDisplayHeight()+u8g2.getAscent()-1)/2, s);
+                u8g2.drawStr(u8g2.getDisplayWidth()-5-u8g2.getStrWidth(s), (u8g2.getDisplayHeight()+u8g2.getAscent()-1)/2, s);
 
                 // рисуем графики
 #define LPADD 12
@@ -174,11 +170,11 @@ class _jmpWrk : public Wrk {
         auto blev = pwrBattLevel();
             u8g2.setFont(u8g2_font_battery19_tn);
             u8g2.setFontDirection(1);
-            u8g2.drawGlyph(50, 0, '0' + blev);
+            u8g2.drawGlyph(10, 0, '0' + blev);
             u8g2.setFontDirection(0);
         if (pwrBattCharge()) {
             u8g2.setFont(u8g2_font_open_iconic_embedded_1x_t);
-            u8g2.drawGlyph(40, 9, 'C');
+            u8g2.drawGlyph(0, 9, 'C');
         }
     }
 
@@ -206,6 +202,16 @@ public:
         jmp.tick(ac);
         const bool chgmode = m != jmp.mode();
         sq.tick(ac);
+
+        // gndreset
+        if (
+                (jmp.mode() == AltJmp::GROUND) &&
+                (jmp.tm() > ALT_AUTOGND_INTERVAL)
+            ) {
+            ac.gndreset();
+            jmp.reset();
+            CONSOLE("auto GND reseted");
+        }
 
         // добавление в log
         log.push({ ac.alt(), false, chgmode });

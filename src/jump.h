@@ -8,9 +8,12 @@
 #define PINBMP  5
 
 // Шаг отображения высоты
-#define ALT_STEP            5
+#define ALT_STEP                5
 // Порог перескока к следующему шагу
-#define ALT_STEP_ROUND      3
+#define ALT_STEP_ROUND          3
+
+// Интервал обнуления высоты (ms)
+#define ALT_AUTOGND_INTERVAL    600000
 
 bool jumpStart();
 bool jumpStop();

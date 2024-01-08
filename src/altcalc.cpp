@@ -9,8 +9,14 @@ float press2alt(float pressgnd, float pressure) {
   return 44330 * (1.0 - pow(pressure / pressgnd, 0.1903));
 }
 
-AltCalc::VAvg::VAvg(float alt0, const src_t &src) {
-    _interval = 0;
+AltCalc::VAvg::VAvg() :
+    _interval(0),
+    _alt(0),
+    _speed(0)
+{ }
+
+AltCalc::VAvg::VAvg(float alt0, const src_t &src)
+{
     // самый первый _interval в массиве - не должен входить в суммарный интервал при определении скорости
     double alt = alt0;
     for (const auto &d: src) {
@@ -19,14 +25,15 @@ AltCalc::VAvg::VAvg(float alt0, const src_t &src) {
     }
     _alt = alt / (src.size()+1);
     _speed = (_interval > 0) ?
-        // _interval м.б. равен нулю, даже при src.size()==0,
+        // _interval м.б. равен нулю, даже при src.size()!=0,
         // но при _interval!=0 массив не может оказаться пустым
         (src.last().alt - alt0) * 1000 / _interval :
         0;
 }
 
-
-AltCalc::VApp::VApp(float alt0, const src_t &src) {
+AltCalc::VApp::VApp(float alt0, const src_t &src) :
+    VAvg()
+{
     // считаем коэффициенты линейной аппроксимации
     // sy - единственный ненулевой элемент в нулевой точке - равен _alt0
     double sy = alt0, sxy = 0, sx = 0, sx2 = 0;
@@ -49,13 +56,36 @@ AltCalc::VApp::VApp(float alt0, const src_t &src) {
     double a = (sxy*n - (sx*sy)) / (sx2*n-(sx*sx));
     double b = (sy - (a*sx)) / n;
 
-    _alt = a * x + b;
-    _speed = a * 1000;
+    _interval   = x;
+    _alt        = a * x + b;
+    _speed      = a * 1000;
+}
+
+AltCalc::VSavg::VSavg(const src_t &src, uint8_t sz) :
+    VAvg()
+{
+    // самый первый _interval в массиве - не должен входить в суммарный интервал при определении скорости
+    if (sz >= src.size())
+        sz = src.size()-1;
+    double alt = 0;
+    uint8_t n = 0;
+    for (const auto &d: src) {
+        alt += d.alt;
+        n++;
+        if (n > sz) break;
+        _interval += d.interval;
+    }
+    _alt = alt / n;
+    _speed = (_interval > 0) ?
+        // _interval м.б. равен нулю, даже при src.size()!=0,
+        // но при _interval!=0 массив не может оказаться пустым
+        (src.last().alt - src[sz].alt) * 1000 / _interval :
+        0;
 }
 
 const uint32_t AltCalc::interval() const {
     uint32_t interval = 0;
-    for (const auto &d: _d)
+    for (const auto &d: _data)
         interval += d.interval;
     return interval;
 }
@@ -64,370 +94,43 @@ const double AltCalc::sqdiff() const {
     auto s = avg().speed();
     uint32_t x = 0;
     double sq = 0;
-    for (const auto &d: _d) {
+    for (const auto &d: _data) {
         x += d.interval;
         double altd = s * x / 1000 + _alt0 - d.alt;
         sq += altd * altd;
     }
 
-    return sqrt(sq / _d.size());
+    return sqrt(sq / _data.size());
 }
-
-#ifdef AC_SHORT
-// Высота - среднее за AC_SHORT циклов
-const float AltCalc::altsav() const {
-    double alt = 0;
-    for (uint8_t i = 0; i < AC_SHORT; i++)
-        alt += _d[i].alt;
-    return alt / AC_SHORT;
-}
-#endif
 
 void AltCalc::tick(float press, uint16_t tinterval) {
-    if (_d.size() > 0) {
-        _press0 = _d.frst().press;
-        _alt0   = _d.frst().alt;
+    bool full = _data.full();
+    if (_data.empty()) {
+        _pressgnd   = press;
+        _press0     = press;
     }
-    _d.push({
+    else
+    if (full) {
+        _press0 = _data.frst().press;
+        _alt0   = _data.frst().alt;
+    }
+
+    _data.push({
         tinterval,
         press,
         press2alt(_pressgnd, press)
     });
 
-    if (tinterval > 0) {
-        // курсор первого уровня
-        _c ++;
-        if (_c >= AC_DATA_COUNT)
-            _c = 0;
-    
-        _data[_c].interval = tinterval;
-    }
-    else
-    if (_c >= AC_DATA_COUNT)
-        return;
-    
-    auto &d = _data[_c];
-    d.press = press;
-    d.alt   = press2alt(_pressgnd, press);
-    
-    if (_state == ACST_INIT) {
-        if (_c+1 >= AC_DATA_COUNT) {
-            // в этом месте _press0 ещё не заполнена,
-            // и из-за этого неверно считаются avg-значения
-            // сразу после перехода из init в рабочий режим,
-            // поэтому заполним её самым нулевым значением,
-            // _alt0 будет пересчитана в gndreset();
-            _press0 = _data[0].press;
-            gndreset();
-            _state = ACST_GROUND;
-        }
-        else
-            return;
-    }
-    
-    dcalc();
-    // количество тиков между изменениями в направлении движения (вверх/вниз)
-    _dirtm += tinterval;
-    _dircnt ++;
-    _statetm += tinterval;
-    _statecnt ++;
-    _jmptm += tinterval;
-    _jmpcnt ++;
-    _sqbigtm += tinterval;
-    _sqbigcnt ++;
-    
-    stateupdate(tinterval);
-}
-
-void AltCalc::dcalc() {
-    // считаем коэффициенты линейной аппроксимации
-    // sy - единственный ненулевой элемент в нулевой точке - равен _alt0
-    double sy=_alt0, sxy = 0, sx = 0, sx2 = 0;
-    // количество элементов на один больше, чем AC_DATA_COUNT,
-    // т.к. нулевой элемент находится не в _data, а в _alt0/_press0
-    uint32_t x = 0, n = AC_DATA_COUNT + 1;
-    
-    int8_t i = ifrst();
-    do {
-        auto &d = _data[i];
-        if (d.interval == 0)
-            continue;
-        
-        x   += d.interval;
-        sx  += x;
-        sx2 += x*x;
-        sy  += d.alt;
-        sxy += x*d.alt;
-    } while (inext(i));
-    
-    // коэфициенты
-    _interval = x;
-    _ka       = (sxy*n - (sx*sy)) / (sx2*n-(sx*sx));
-    _kb       = (sy - (_ka*sx)) / n;
-    
-    // средняя высота
-    _altavg   = sy / n;
-    
-    // средняя скорость - разница между крайними значениями
-    if (_interval > 0) { // защита от деления на ноль и переполнения при вычитании
-        // вычитаем из x самый первый интервал (перед вычисленной самой первой высотой), 
-        // т.к. для вычисления скорости он не нужен, а нужны только интервалы между первой высотой и текущей
-        _speedavg = (_data[_c].alt - _alt0) * 1000 / _interval;
-    }
-    else {
-        _speedavg = 0;
-    }
-    
-    // среднеквадратичное отклонение высот от прямой _speedavg
-    double sq = 0;
-    x = 0;
-    i = ifrst();
-    do {
-        auto &d = _data[i];
-        x += d.interval;
-        double altd = _speedavg * x / 1000 + _alt0 - d.alt;
-        sq += altd * altd;
-    } while (inext(i));
-    
-    _sqdiff = sqrt(sq / (n-1));
-}
-
-ac_state_t AltCalc::stateupdate(uint16_t tinterval) {
-    ac_direct_t dir = // направление движения
-        speedapp() > AC_SPEED_FLAT ?
-            ACDIR_UP :
-        speedapp() < -AC_SPEED_FLAT ?
-            ACDIR_DOWN :
-            ACDIR_FLAT;
-    if (_dir != dir) {
-        _dir = dir;
-        _dircnt = 0;
-        _dirtm = 0;
-    }
-
-    // большая турбуленция (высокое среднеквадратическое отклонение)
-    if (!_sqbig && (_sqdiff >= AC_JMP_SQBIG_THRESH)) {
-        _sqbig = true;
-        _dircnt = 0;
-        _dirtm = 0;
-    }
-    else
-    if (_sqbig && (_sqdiff < AC_JMP_SQBIG_MIN)) {
-        _sqbig = false;
-        _dircnt = 0;
-        _dirtm = 0;
-    }
-    
-    // state определяется исходя из направления движения и скорости
-    // т.е. это состояние на текущее мнгновение
-    ac_state_t st = _state;
-    if (_dir == ACDIR_UP) {
-        st = altapp() < 40 ? ACST_TAKEOFF40 : ACST_TAKEOFF;
-    }
-    else 
-    if ((altapp() < 50) && 
-        (speedavg() < 0.5) && (speedavg() > -0.5) &&
-        (sqdiff() < 0.5)) {
-        st = ACST_GROUND;
-    }
-    else
-    if ((_dir == ACDIR_DOWN) && (altapp() < 100)) {
-        st = ACST_LANDING;
-    }
-    else
-    if ((speedapp() < -AC_SPEED_FREEFALL_I) || 
-        ((_state == ACST_FREEFALL) && (speedapp() < -AC_SPEED_FREEFALL_O))) {
-        st = ACST_FREEFALL;
-    }
-    else
-    if ((speedapp() < -AC_SPEED_CANOPY_I) ||
-        ((_state == ACST_CANOPY) && (speedapp() < -AC_SPEED_FLAT))) {
-        st = ACST_CANOPY;
-    }
-    
-    if (_state != st) {
-        _state = st;
-        _statecnt = 0;
-        _statetm = 0;
-    }
-    
-    // jmpmode - определение режима прыжка, исходя из продолжительности
-    // одного и того же состояния
-    // т.е. тут переключение всегда происходит с задержкой, но 
-    // jmptm и jmpcnt после переключения будут всегда с учётом этой задержки
-    ac_jmpmode_t jmp = _jmpmode;
-    auto tint = _data[_c].interval;
-    switch (_jmpmode) {
-        case ACJMP_INIT:
-            if (state() > ACST_INIT) {
-                jmp = ACJMP_NONE;
-                _jmpccnt = 0;
-                _jmpctm = 0;
-            }
-            break;
-        
-        case ACJMP_NONE:
-            if (state() > ACST_GROUND) {
-                _jmpccnt++;
-                _jmpctm += tint;
-                if ((_jmpccnt >= AC_JMP_TOFF_COUNT) && (_jmpctm >= AC_JMP_TOFF_TIME))
-                    jmp = ACJMP_TAKEOFF;
-            }
-            else
-            if (_jmpccnt > 0) {
-                _jmpccnt = 0;
-                _jmpctm = 0;
-            }
-            break;
-            
-        case ACJMP_TAKEOFF:
-            toffupdate(tinterval);
-            return st;
-            /*
-            if ((_jmpccnt == 0) && (speedapp() < -AC_JMP_SPEED_MIN)) {
-                // При скорости снижения выше пороговой
-                // включаем счётчик времени прыжка
-                _jmpccnt++;
-                _jmpctm += tint;
-            }
-            if ((_jmpccnt > 0) && (
-                    // После взвода счётчика на скорости AC_JMP_SPEED_MIN
-                    // Нам уже достаточно удерживать минимальную скорость AC_JMP_SPEED_CANCEL
-                    // в течение AC_JMP_SPEED_COUNT / AC_JMP_SPEED_TIME,
-                    // а после этого времени мы уже не будем проверять скорость снижения для отмены счёта
-                    // С этого момента это уже считается прыжком - осталось только выяснить, есть ли тут свободное падение
-                    ((_jmpccnt >= AC_JMP_SPEED_COUNT) && (_jmpctm >= AC_JMP_SPEED_TIME)) ||
-                    (speedapp() < -AC_JMP_SPEED_CANCEL)
-                )) {
-                _jmpccnt++;
-                _jmpctm += tint;
-                // выясняем, есть ли тут свободное падение
-                if ((state() == ACST_FREEFALL) && 
-                    (statecnt() >= AC_JMP_FF_COUNT) && (statetm() >= AC_JMP_FF_TIME))
-                     // скорость достигла фрифольной и остаётся такой более 5 сек,
-                    jmp = ACJMP_FREEFALL;
-                else
-                if ((_jmpccnt >= AC_JMP_NOFF_COUNT) && (_jmpctm >= AC_JMP_NOFF_TIME))
-                    // если за 80 тиков скорость так и не достигла фрифольной,
-                    // значит было открытие под бортом
-                    jmp = ACJMP_CANOPY;
-            }
-            else
-            if (_jmpccnt > 0) {
-                _jmpccnt = 0;
-                _jmpctm = 0;
-            }
-            break;
-            */
-            
-        case ACJMP_FREEFALL:
-            // Переход в режим CNP после начала прыга,
-            // Дальше только окончание прыга может быть, даже если начнётся снова FF,
-            // Для jmp только такой порядок переходов,
-            // это гарантирует прибавление только одного прыга на счётчике при одном фактическом
-            if (speedapp() >= -AC_JMP_SPEED_CANOPY) {
-                _jmpccnt++;
-                _jmpctm += tint;
-                if ((_jmpccnt >= AC_JMP_CNP_COUNT) && (_jmpctm >= AC_JMP_CNP_TIME))
-                    jmp = ACJMP_CANOPY;
-            }
-            else
-            if (_jmpccnt > 0) {
-                _jmpccnt = 0;
-                _jmpctm = 0;
-            }
-            break;
-            
-        case ACJMP_CANOPY:
-            if (state() == ACST_GROUND) {
-                _jmpccnt++;
-                _jmpctm += tint;
-                if ((_jmpccnt >= AC_JMP_GND_COUNT) && (_jmpctm >= AC_JMP_GND_TIME))
-                    jmp = ACJMP_NONE;
-            }
-            else
-            if (_jmpccnt > 0) {
-                _jmpccnt = 0;
-                _jmpctm = 0;
-            }
-            break;
-    }
-    
-    if (jmp != _jmpmode) {
-        _jmpmode = jmp;
-        _jmpcnt = _jmpccnt;
-        _jmptm = _jmpctm;
-        _jmpccnt = 0;
-        _jmpctm = 0;
-    }
-    
-    return st;
-}
-
-// профиль начала прыжка
-const int8_t ffprofile[] = { -10, -23, -18, -8, -4, -2 };
-#define chktresh(val,tresh) (((tresh) < 0) && ((val) <= (tresh))) || (((tresh) >= 0) && ((val) >= (tresh)))
-
-void AltCalc::toffupdate(uint16_t tinterval) {
-    if (_ffprof == 0) {
-        // стартуем определять вхождение в профиль по средней скорости
-        if (chktresh(speedapp(), ffprofile[0])) {
-            _ffprof ++;
-            _altprof = altapp();
-            _ffproftm = 0;
-            _ffprofcnt = 0;
-        }
-        return;
-    }
-
-    // теперь считаем интервал от самого первого пункта в профиле
-    _ffproftm += tinterval;
-    _ffprofcnt ++;
-
-    // далее - каждые 10 тиков от старта будем проверять каждый следующий пункт профиля
-    if ((_ffprofcnt/AC_JMP_PROFILE_COUNT) < _ffprof)
-        return;
-
-    if (chktresh(altapp()-_altprof, ffprofile[_ffprof])) {
-        // мы всё ещё соответствуем профилю начала прыга
-        _ffprof ++;
-
-        if (_ffprof >= sizeof(ffprofile)) {
-            // профиль закончился, принимаем окончательное решение
-            _jmpmode = speedapp() >= -AC_JMP_SPEED_CANOPY ? ACJMP_CANOPY : ACJMP_FREEFALL;
-            _jmptm = _ffproftm;
-            _jmpcnt = _ffprofcnt + AC_DATA_COUNT; // скорость средняя задерживается примерно на половину-весь размер буфера
-            _ffprof = 0;
-            _altprof = 0;
-            _ffproftm = 0;
-            _ffprofcnt = 0;
-        }
-
-        _altprof = altapp();
-        return;
-    }
-
-    // мы вышли за пределы профиля
-    if (chktresh(speedapp(), ffprofile[0])) {
-        // но мы ещё в рамках старта профиля
-        _ffprof = 1;
-        _altprof = altapp();
-    }
-    else {
-        // выход из профиля полный - полный сброс процесса
-        _ffprof = 0;
-        _altprof = 0;
-    }
-    _ffproftm = 0;
-    _ffprofcnt = 0;
+    if (!full && _data.full())
+        gndreset();
 }
 
 void AltCalc::gndreset() {
     // пересчёт _pressgnd
     double pr = 0;
-    for (auto &d: _d)
+    for (auto &d: _data)
         pr += d.press;
-    _pressgnd = pr / _d.size();
+    _pressgnd = pr / _data.size();
     
     for (auto &d: _data) // т.к. мы пересчитали _pressgnd, то пересчитаем и alt
         d.alt = press2alt(_pressgnd, d.press);
@@ -436,40 +139,6 @@ void AltCalc::gndreset() {
 
 void AltCalc::gndset(float press, uint16_t tinterval) {
     _pressgnd = press;
-}
-
-int8_t AltCalc::i2i(int8_t i) {
-    if (i < 0) {
-        i += AC_DATA_COUNT;
-        if (i < 0)
-            i = 0;
-    }
-    i += _c;
-    if (i >= AC_DATA_COUNT)
-        i -= AC_DATA_COUNT;
-    
-    if (i >= AC_DATA_COUNT)
-        i = AC_DATA_COUNT-1;
-    else
-    if (i < 0)
-        i = 0;
-    
-    return i;
-}
-
-const int8_t AltCalc::ifrst() const {
-    int8_t i = _c+1;
-    if (i >= AC_DATA_COUNT)
-        i = 0;
-    return i;
-}
-
-bool AltCalc::inext(int8_t &i) {
-    bool ok = i != _c;
-    i++;
-    if (i >= AC_DATA_COUNT)
-        i = 0;
-    return ok;
 }
 
 /*******************************
@@ -559,13 +228,13 @@ void AltState::reset() {
 void AltSqBig::tick(const AltCalc &ac) {
     _val = ac.sqdiff();
     // большая турбуленция (высокое среднеквадратическое отклонение)
-    if (!_big && (_val >= AC_JMP_SQBIG_THRESH)) {
+    if (!_big && (_val >= AC_SQBIG_THRESH)) {
         _big = true;
         _cnt = 0;
         _tm = 0;
     }
     else
-    if (_big && (_val < AC_JMP_SQBIG_MIN)) {
+    if (_big && (_val < AC_SQBIG_MIN)) {
         _big = false;
         _cnt = 0;
         _tm = 0;
@@ -587,8 +256,12 @@ void AltSqBig::reset() {
 
 void AltJmp::tick(const AltCalc &ac) {
     auto m = _mode;
-    auto tint = ac.tm();
+    auto tm = ac.tm();
     auto avg = ac.avg();
+
+    if ((_mode != TAKEOFF) && !_ff.empty())
+        _ff.clear();
+
     switch (_mode) {
         case INIT:
             if (!ac.isinit()) {
@@ -601,7 +274,7 @@ void AltJmp::tick(const AltCalc &ac) {
         case GROUND:
             if (avg.speed() > AC_SPEED_FLAT) {
                 _c_cnt++;
-                _c_tm += tint;
+                _c_tm += tm;
                 if ((_c_cnt >= AC_JMP_TOFF_COUNT) && (_c_tm >= AC_JMP_TOFF_TIME))
                     m = TAKEOFF;
             }
@@ -612,8 +285,27 @@ void AltJmp::tick(const AltCalc &ac) {
             }
             break;
             
-        case TAKEOFF:
-            //toffupdate(tinterval);
+        case TAKEOFF: {
+                static const AltProfile::prof_t profile[] = {
+                    { -40, -10 },
+                    { -70, -23 },
+                    { -70, -18 },
+                    { -70, -8 },
+                    { -70, -4 },
+                    { -70, -2 }
+                };
+                if (_ff.empty())
+                    _ff = AltProfile(profile, 6);
+                
+                _ff.tick(ac.sav() /* avg */, tm);
+                if (_ff.full()) {
+                    // профиль закончился, принимаем окончательное решение
+                    m = avg.speed() >= -AC_JMP_CNP_SPEED ? CANOPY : FREEFALL;
+                    // скорость средняя задерживается примерно на половину-весь размер буфера
+                    _c_cnt= _ff.cnt() + 10 /* + AC_DATA_COUNT */;
+                    _c_tm = _ff.tm();
+                }
+            }
             break;
             
         case FREEFALL:
@@ -621,10 +313,10 @@ void AltJmp::tick(const AltCalc &ac) {
             // Дальше только окончание прыга может быть, даже если начнётся снова FF,
             // Для jmp только такой порядок переходов,
             // это гарантирует прибавление только одного прыга на счётчике при одном фактическом
-            if (avg.speed() >= -AC_JMP_SPEED_CANOPY) {
+            if (avg.speed() >= -AC_JMP_CNP_SPEED) {
                 _c_cnt++;
-                _c_tm += tint;
-                if ((_c_cnt >= AC_JMP_CNP_COUNT) && (_c_cnt >= AC_JMP_CNP_TIME))
+                _c_tm += tm;
+                if ((_c_cnt >= AC_JMP_CNP_COUNT) && (_c_tm >= AC_JMP_CNP_TIME))
                     m = CANOPY;
             }
             else
@@ -634,15 +326,15 @@ void AltJmp::tick(const AltCalc &ac) {
             }
             break;
             
-        case ACJMP_CANOPY:
+        case CANOPY:
             if (
                     (avg.alt() < 50) && 
                     (avg.speed() < 0.5) &&
                     (avg.speed() > -0.5)
                 ) {
                 _c_cnt++;
-                _c_tm += tint;
-                if ((_c_cnt >= AC_JMP_GND_COUNT) && (_c_cnt >= AC_JMP_GND_TIME))
+                _c_tm += tm;
+                if ((_c_cnt >= AC_JMP_GND_COUNT) && (_c_tm >= AC_JMP_GND_TIME))
                     m = GROUND;
             }
             else
@@ -655,7 +347,7 @@ void AltJmp::tick(const AltCalc &ac) {
 
     if (m == _mode) {
         _cnt ++;
-        _tm += ac.tm();
+        _tm += tm;
     }
     else {
         _mode   = m;
@@ -672,4 +364,87 @@ void AltJmp::reset() {
     _tm     = 0;
     _c_cnt  = 0;
     _c_tm   = 0;
+}
+
+/*******************************
+ *          AltProfile
+ *******************************/
+
+AltProfile::AltProfile() :
+    _prof(NULL),
+    _sz(0),
+    _icnt(0)
+{ }
+
+AltProfile::AltProfile(const prof_t *profile, uint8_t sz, uint8_t icnt) :
+    _prof(profile),
+    _sz(sz),
+    _icnt(icnt)
+{ }
+
+void AltProfile::tick(const AltCalc::VAvg &avg, uint32_t tm) {
+    if ((_prof == NULL) || (_sz == 0))
+        return;
+    
+    if (_c == 0) {
+        // стартуем определять вхождение в профиль по средней скорости
+        const auto &p = _prof[_c];
+        if ((avg.speed() >= p.min) && (avg.speed() <= p.max)) {
+            _c ++;
+            _alt = avg.alt();
+            _tm = 0;
+            _cnt = 0;
+        }
+        return;
+    }
+
+    // теперь считаем интервал от самого первого пункта в профиле
+    _cnt ++;
+    _tm += tm;
+
+    if (_c >= _sz) return;
+
+    // далее - каждые 10 тиков от старта будем проверять каждый следующий пункт профиля
+    if ((_cnt/_c) < _icnt)
+        return;
+
+    auto alt = avg.alt() - _alt;
+    const auto &p = _prof[_c];
+    if ((alt >= p.min) && (alt <= p.max)) {
+        // мы всё ещё соответствуем профилю начала прыга
+        _c ++;
+        _alt = avg.alt();
+        return;
+    }
+
+    // мы вышли за пределы профиля
+    if ((avg.speed() >= p.min) && (avg.speed() <= p.max)) {
+        // но мы ещё в рамках старта профиля
+        _c ++;
+        _alt = avg.alt();
+    }
+    else {
+        // выход из профиля полный - полный сброс процесса
+        _c = 0;
+        _alt = 0;
+    }
+
+    if (_cnt > 0) {
+        _cnt = 0;
+        _tm = 0;
+    }
+}
+
+void AltProfile::reset() {
+    _c      = 0;
+    _alt    = 0;
+    _cnt    = 0;
+    _tm     = 0;
+}
+
+void AltProfile::clear() {
+    reset();
+    _prof   = NULL;
+    _sz     = 0;
+    _icnt   = 0;
 }
