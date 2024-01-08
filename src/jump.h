@@ -17,5 +17,6 @@
 
 bool jumpStart();
 bool jumpStop();
+bool jumpSleepTakeoff();
 
 #endif // _jump_H

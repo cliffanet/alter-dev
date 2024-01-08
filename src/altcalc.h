@@ -8,7 +8,7 @@
 #include <stdint.h>
 #include "ringsimple.h"
 
-#define AC_DATA_COUNT           40
+#define AC_DATA_COUNT           20
 
 // ************************************************
 //  Параметры для определения direct и state

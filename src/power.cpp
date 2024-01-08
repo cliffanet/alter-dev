@@ -8,9 +8,19 @@
 #include "core/view.h"
 #include "core/log.h"
 
+#include "jump.h"
+
 #include "esp_sleep.h"
 
 void pwrinit();
+
+typedef enum {
+    PWR_OFF = 0,
+    PWR_SLEEP,
+    PWR_ACTIVE
+} power_mode_t;
+
+static RTC_DATA_ATTR power_mode_t mode = PWR_ACTIVE; //PWR_OFF;
 
 static void pwroff() {
     CONSOLE("goto off");
@@ -18,9 +28,21 @@ static void pwroff() {
     while (digitalRead(PINBTN_PWR) == LOW) delay(100);
     esp_sleep_enable_ext0_wakeup(PINBTN_PWR, 0); //1 = High, 0 = Low
     CONSOLE("Going to deep sleep now");
+    mode = PWR_OFF;
     esp_deep_sleep_start();
     CONSOLE("This will never be printed");
 }
+
+static void pwrsleep() {
+    CONSOLE("goto sleep");
+    esp_sleep_enable_ext0_wakeup(PINBTN_PWR, 0); //1 = High, 0 = Low
+    esp_sleep_enable_timer_wakeup(1000000);
+    CONSOLE("Going to deep sleep now");
+    mode = PWR_SLEEP;
+    esp_deep_sleep_start();
+    CONSOLE("This will never be printed");
+}
+
 
 static double fmap(uint32_t in, uint32_t in_min, uint32_t in_max, double out_min, double out_max) {
     return  (out_max - out_min) * (in - in_min) / (in_max - in_min) + out_min;
@@ -171,8 +193,10 @@ public:
             return;
         }
 
-        if (ison)
+        if (ison) {
             pwrinit();
+            mode = PWR_ACTIVE;
+        }
         else
             pwroff();
     }
@@ -187,6 +211,44 @@ bool powerStart(bool pwron) {
     if (_pwr.isrun())
         return false;
     
+    if (pwron && (mode == PWR_SLEEP)) {
+        // Проверяем, почему мы вышли из спящего режима
+
+#ifdef FWVER_DEBUG
+        switch(esp_sleep_get_wakeup_cause()) {
+            case ESP_SLEEP_WAKEUP_EXT0      : CONSOLE("Wakeup: RTC_IO"); break;
+            case ESP_SLEEP_WAKEUP_EXT1      : CONSOLE("Wakeup: RTC_CNTL"); break;
+            case ESP_SLEEP_WAKEUP_TIMER     : CONSOLE("Wakeup: timer"); break;
+            case ESP_SLEEP_WAKEUP_TOUCHPAD  : CONSOLE("Wakeup: touchpad"); break;
+            case ESP_SLEEP_WAKEUP_ULP       : CONSOLE("Wakeup: ULP program"); break;
+            default : CONSOLE("Wakeup unknown: %d", esp_sleep_get_wakeup_cause()); break;
+        }
+#endif // FWVER_DEBUG
+
+        if (esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_EXT0) {
+            CONSOLE("resume from sleep by btn");
+            pwrinit();
+            mode = PWR_ACTIVE;
+            return true;
+        }
+        else
+        if (jumpSleepTakeoff()) {
+            CONSOLE("resume from sleep by Takeoff");
+            pwrinit();
+            mode = PWR_ACTIVE;
+            return true;
+        }
+        else {
+            pwrsleep();
+        }
+    }
+
+    if (pwron && (mode == PWR_ACTIVE)) {
+        CONSOLE("mode = active");
+        pwrinit();
+        return true;
+    }
+    
     _pwr = wrkRun<_powerWrk>(pwron);
     
     return true;
@@ -199,6 +261,10 @@ bool powerStop() {
     _pwr.term();
 
     return true;
+}
+
+void powerSleep() {
+    pwrsleep();
 }
 
 static void _reset() {

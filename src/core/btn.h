@@ -34,4 +34,6 @@ class Btn {
         bool hide();
 };
 
+uint32_t btnIdle();
+
 #endif // _btn_H

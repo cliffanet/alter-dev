@@ -14,10 +14,7 @@ void setup() {
     Serial.begin(115200);
 #endif // FWVER_DEBUG
     pwrBattInit();
-    //powerStart(true);
-
-    // временно прямое включение для отладки
-    pwrinit();
+    powerStart(true);
 }
 
 void pwrinit() {

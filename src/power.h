@@ -19,5 +19,6 @@ bool pwrBattCharge();
 
 bool powerStart(bool pwron);
 bool powerStop();
+void powerSleep();
 
 #endif // _power_H

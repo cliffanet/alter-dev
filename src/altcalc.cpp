@@ -139,6 +139,11 @@ void AltCalc::gndreset() {
 
 void AltCalc::gndset(float press, uint16_t tinterval) {
     _pressgnd = press;
+    // если мы делаем gndset ещё до полной инициализации,
+    // забиваем массив данных текущим давлением, 
+    // тем самым мы принудительно завершаем инициализацию
+    while (!_data.full())
+        _data.push({ tinterval, press, 0 });
 }
 
 /*******************************
@@ -287,12 +292,12 @@ void AltJmp::tick(const AltCalc &ac) {
             
         case TAKEOFF: {
                 static const AltProfile::prof_t profile[] = {
-                    { -40, -10 },
-                    { -70, -23 },
-                    { -70, -18 },
-                    { -70, -8 },
-                    { -70, -4 },
-                    { -70, -2 }
+                    { -50,  -10 },
+                    { -100, -23 },
+                    { -100, -18 },
+                    { -100, -8 },
+                    { -100, -4 },
+                    { -100, -2 }
                 };
                 if (_ff.empty())
                     _ff = AltProfile(profile, 6);

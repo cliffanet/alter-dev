@@ -19,6 +19,7 @@ class _btnWrk : public Wrk {
     };
 
     std::list<Btn*> _hnd;
+    uint32_t _tmidle = 0;
 
     bool ispushed(uint8_t _pin) {
         return digitalRead(_pin) == LOW;
@@ -41,6 +42,8 @@ public:
         CONSOLE("(0x%08x) destroy", this);
     }
 #endif
+
+    const uint32_t tmidle() const { return _tmidle; }
 
     bool empty() const {
         return _hnd.empty();
@@ -68,9 +71,12 @@ public:
     state_t run() {
         if (_hnd.empty())
             return END;
+        _tmidle ++;
 
         for (auto &b: _ball) {
             bool pushed = ispushed(b.pin);
+            if (pushed)
+                _tmidle = 0;
             if (pushed && (b.pushed < 0))
                 b.pushed = 0;
 
@@ -158,4 +164,10 @@ bool Btn::hide() {
         return false;
     _btn->add(this, true);
     return true;
+}
+
+uint32_t btnIdle() {
+    if (!_btn.isrun())
+        return 0;
+    return _btn->tmidle();
 }

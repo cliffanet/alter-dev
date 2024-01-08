@@ -11,6 +11,63 @@
 #include "altcalc.h"
 #include <Adafruit_BMP280.h>
 
+/* ------------------------------------------------------------------------------------------- *
+ *  Текущее давление "у земли", нужно для отслеживания начала подъёма в режиме "сон"
+ * ------------------------------------------------------------------------------------------- */
+static RTC_DATA_ATTR float _pressgnd = 0, _altlast = 0;
+static RTC_DATA_ATTR int8_t _toffcnt = 0;
+static RTC_DATA_ATTR int64_t _gndtm = 0;
+bool jumpSleepTakeoff() {
+    Adafruit_BMP280 bmp = Adafruit_BMP280(PINBMP);
+    if (!bmp.begin()) {
+        CONSOLE("NO BMP280");
+        return false;
+    }
+    
+    float press = bmp.readPressure();
+    if (_pressgnd == 0) {
+        _pressgnd = press;
+        _gndtm = utm();
+    }
+
+    float alt = press2alt(_pressgnd, press);
+    CONSOLE("_pressgnd: %.2f, press: %.2f, alt: %.2f, _altlast: %.2f, _toffcnt: %d; tdiff: %lld", _pressgnd, press, alt, _altlast, _toffcnt, utm()-_gndtm);
+
+    if (alt > 100) {
+        _toffcnt = 0;
+        return true;
+    }
+    if (alt > (_altlast + 0.5)) {
+        if (_toffcnt < 0)
+            _toffcnt = 0;
+        _toffcnt ++;
+        if (_toffcnt >= 10) {
+            CONSOLE("is toff");
+            _toffcnt = 0;
+            return true;
+        }
+    }
+    else {
+        if (_toffcnt > 0)
+            _toffcnt --;
+        _toffcnt --;
+        if (_toffcnt <= -10) {
+            CONSOLE("gnd reset");
+            _pressgnd = press;
+            _toffcnt = 0;
+            _gndtm = utm();
+        }
+    }
+    
+    _altlast = alt;
+    
+    return false;
+}
+
+/* ------------------------------------------------------------------------------------------- */
+
+static RTC_DATA_ATTR uint8_t page = 0;
+
 class _jmpWrk : public Wrk {
     Adafruit_BMP280 bmp = Adafruit_BMP280(PINBMP);
     uint64_t tck;
@@ -18,7 +75,6 @@ class _jmpWrk : public Wrk {
     AltJmp jmp;
     AltSqBig sq;
     bool ok = false;
-    uint8_t page = 0;
 
     typedef struct {
         int alt;
@@ -60,7 +116,10 @@ class _jmpWrk : public Wrk {
     }
 
     int16_t alt() const {
-        int16_t alt = round(ac.avg().alt());
+        // Для отображения высоты app() лучше подходит,
+        // т.к. она точнее показывает текущую высоту,
+        // опаздывает от неё меньше, чем avg()
+        int16_t alt = round(ac.app().alt());
         int16_t o = alt % ALT_STEP;
         alt -= o;
         if (abs(o) > ALT_STEP_ROUND) alt+= o >= 0 ? ALT_STEP : -ALT_STEP;
@@ -184,11 +243,22 @@ public:
             CONSOLE("Could not find a valid BMP280 sensor, check wiring!");
         }
         tck = utick();
+
+        auto u = utm();
+        CONSOLE("_gndtm: %lld (%lld)", _gndtm, u-_gndtm);
+        // максимальная разница до ближайшей установки _pressgnd (u-_gndtm)
+        // должна учитывать:
+        // 1. интервал обновления _pressgnd в спящем режиме (10 сек)
+        // 2. когда начинается подъём, _pressgnd перестаёт обновляться на 10 сек (до принятия решения о выходе из сна)
+        // И это только защита забытого необнулённого _pressgnd
+        if ((_pressgnd > 0) && (u >= _gndtm) && ((u-_gndtm) < 60000000))
+            ac.gndset(_pressgnd);
     }
 #ifdef FWVER_DEBUG
     ~_jmpWrk() {
         CONSOLE("(0x%08x) destroy", this);
         bmp.setSampling(Adafruit_BMP280::MODE_SLEEP);
+        page = 0;
     }
 #endif
 
@@ -206,11 +276,25 @@ public:
         // gndreset
         if (
                 (jmp.mode() == AltJmp::GROUND) &&
+                (abs(ac.avg().speed()) < AC_SPEED_FLAT) &&
                 (jmp.tm() > ALT_AUTOGND_INTERVAL)
             ) {
             ac.gndreset();
             jmp.reset();
             CONSOLE("auto GND reseted");
+        }
+
+        // sleep
+        if (
+                (btnIdle() > 200) &&
+                !displayLight() &&
+                (jmp.mode() == AltJmp::GROUND) &&
+                (abs(ac.avg().speed()) < AC_SPEED_FLAT) &&
+                (jmp.tm() > 20000)
+                
+            ) {
+            CONSOLE("sleep timer out");
+            powerSleep();
         }
 
         // добавление в log
