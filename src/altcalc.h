@@ -8,7 +8,7 @@
 #include <stdint.h>
 #include "ringsimple.h"
 
-#define AC_DATA_COUNT           20
+#define AC_DATA_COUNT           10
 
 // ************************************************
 //  Параметры для определения direct и state
@@ -237,6 +237,9 @@ public:
         CANOPY
     } mode_t;
 
+    AltJmp() : _strict(false) {}
+    AltJmp(bool strict) : _strict(strict) {}
+
     void tick(const AltCalc &ac);
 
     // Текущий режим
@@ -252,6 +255,7 @@ public:
 
 private:
     mode_t _mode = INIT;
+    bool _strict;
     uint32_t _cnt = 0, _tm = 0, _c_cnt = 0, _c_tm = 0;
     AltProfile _ff;
 };

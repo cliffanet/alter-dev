@@ -374,6 +374,11 @@ void AltJmp::tick(const AltCalc &ac) {
             break;
             
         case TAKEOFF: {
+                static const AltProfile::prof_t profstr[] = {
+                    { -50,  -15 },
+                    { -100, -30 },
+                    { -100, -40 },
+                };
                 static const AltProfile::prof_t profile[] = {
                     { -50,  -10 },
                     { -100, -23 },
@@ -383,12 +388,14 @@ void AltJmp::tick(const AltCalc &ac) {
                     { -100, -2 }
                 };
                 if (_ff.empty())
-                    _ff = AltProfile(profile, 6);
+                    _ff = _strict ?
+                        AltProfile(profstr, 3) :
+                        AltProfile(profile, 6);
                 
                 _ff.tick(ac.sav() /* avg */, tm);
                 if (_ff.full()) {
                     // профиль закончился, принимаем окончательное решение
-                    m = avg.speed() >= -AC_JMP_CNP_SPEED ? CANOPY : FREEFALL;
+                    m = !_strict && (avg.speed() >= -AC_JMP_CNP_SPEED) ? CANOPY : FREEFALL;
                     // скорость средняя задерживается примерно на половину-весь размер буфера
                     _c_cnt= _ff.cnt() + 10 /* + AC_DATA_COUNT */;
                     _c_tm = _ff.tm();

@@ -72,7 +72,7 @@ class _jmpWrk : public Wrk {
     Adafruit_BMP280 bmp = Adafruit_BMP280(PINBMP);
     uint64_t tck;
     AltCalc ac;
-    AltJmp jmp;
+    AltJmp jmp = AltJmp(true);
     AltSqBig sq;
     AltStrict jstr;
     bool ok = false;
