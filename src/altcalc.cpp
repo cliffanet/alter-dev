@@ -15,7 +15,8 @@ AltCalc::VAvg::VAvg() :
     _speed(0)
 { }
 
-AltCalc::VAvg::VAvg(float alt0, const src_t &src)
+AltCalc::VAvg::VAvg(float alt0, const src_t &src) :
+    VAvg()
 {
     // самый первый _interval в массиве - не должен входить в суммарный интервал при определении скорости
     double alt = alt0;
@@ -423,9 +424,12 @@ void AltJmp::tick(const AltCalc &ac) {
             
         case CANOPY:
             if (
-                    (avg.alt() < 50) && 
-                    (avg.speed() < 0.5) &&
-                    (avg.speed() > -0.5)
+                    (avg.alt() < 50) &&
+                    // разницы +-0.5 (между началом и концом = скорость)
+                    // может быть недостаточно.
+                    // некоторые датчики шумят чуть сильнее
+                    (avg.speed() < 0.7) &&
+                    (avg.speed() > -0.7)
                 ) {
                 _c_cnt++;
                 _c_tm += tm;
