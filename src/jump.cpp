@@ -25,7 +25,7 @@ bool jumpSleepTakeoff() {
     }
     
     float press = bmp.readPressure();
-    if (_pressgnd == 0) {
+    if ((_pressgnd == 0) || ((utm()-_gndtm) > 60000000)) {
         _pressgnd = press;
         _gndtm = utm();
     }
@@ -37,11 +37,11 @@ bool jumpSleepTakeoff() {
         _toffcnt = 0;
         return true;
     }
-    if (alt > (_altlast + 0.5)) {
+    if (alt > (_altlast + 0.7)) {
         if (_toffcnt < 0)
             _toffcnt = 0;
         _toffcnt ++;
-        if (_toffcnt >= 10) {
+        if (_toffcnt >= 5) {
             CONSOLE("is toff");
             _toffcnt = 0;
             return true;
@@ -60,7 +60,7 @@ bool jumpSleepTakeoff() {
     }
     
     _altlast = alt;
-    
+    bmp.setSampling(Adafruit_BMP280::MODE_SLEEP);
     return false;
 }
 
@@ -259,16 +259,24 @@ public:
         // 1. интервал обновления _pressgnd в спящем режиме (10 сек)
         // 2. когда начинается подъём, _pressgnd перестаёт обновляться на 10 сек (до принятия решения о выходе из сна)
         // И это только защита забытого необнулённого _pressgnd
-        if ((_pressgnd > 0) && (u >= _gndtm) && ((u-_gndtm) < 60000000))
+        if ((_pressgnd > 0) && (u >= _gndtm) && ((u-_gndtm) < 60000000)) {
+            CONSOLE("use saved _pressgnd: %0.2f", _pressgnd);
             ac.gndset(_pressgnd);
+        }
     }
-#ifdef FWVER_DEBUG
     ~_jmpWrk() {
         CONSOLE("(0x%08x) destroy", this);
-        bmp.setSampling(Adafruit_BMP280::MODE_SLEEP);
-        page = 0;
+        //page = 0;
     }
-#endif
+
+    void save() {
+        _pressgnd = ac.pressgnd();
+        _altlast = ac.alt();
+        _toffcnt = 0;
+        _gndtm = utm();
+        bmp.setSampling(Adafruit_BMP280::MODE_SLEEP);
+        CONSOLE("saved");
+    }
 
     state_t run() {
         if (!ok)
@@ -347,6 +355,7 @@ bool jumpStop() {
     if (!_jmp.isrun())
         return false;
     
+    _jmp->save();
     _jmp.term();
 
     return false;

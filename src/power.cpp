@@ -28,6 +28,7 @@ static void pwroff() {
     while (digitalRead(PINBTN_PWR) == LOW) delay(100);
     esp_sleep_enable_ext0_wakeup(PINBTN_PWR, 0); //1 = High, 0 = Low
     CONSOLE("Going to deep sleep now");
+    jumpStop(); // для перевода BMP280 в sleep-mode
     mode = PWR_OFF;
     esp_deep_sleep_start();
     CONSOLE("This will never be printed");
@@ -38,6 +39,7 @@ static void pwrsleep() {
     esp_sleep_enable_ext0_wakeup(PINBTN_PWR, 0); //1 = High, 0 = Low
     esp_sleep_enable_timer_wakeup(1000000);
     CONSOLE("Going to deep sleep now");
+    jumpStop(); // сохраняем давление для корректного авто-пробуждения из sleep
     mode = PWR_SLEEP;
     esp_deep_sleep_start();
     CONSOLE("This will never be printed");
